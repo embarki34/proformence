@@ -1,8 +1,10 @@
 import { Request, Response } from 'express';
-import pool from "../lib/db"; // Fixed import path
-import { Login, Organization } from "../lib/types"; // Fixed import path
-import { decryptPassword, encryptPassword } from "../lib/incrypt"; // Fixed import path
-import { generateRefreshToken, generateToken, verifyRefreshToken } from "../lib/jwt"; // Importing JWT functions
+import { PrismaClient } from '@prisma/client';
+import { Login, Organization } from "../lib/types";
+import {  encryptPassword } from "../lib/incrypt";
+import { generateRefreshToken, generateToken, verifyRefreshToken } from "../lib/jwt";
+
+const prisma = new PrismaClient();
 
 class IdentityController {
     async register(req: Request, res: Response) {
@@ -18,12 +20,11 @@ class IdentityController {
             }
 
             // Check if username already exists
-            const [existingUsers] = await pool.query<any[]>(
-                'SELECT id FROM organization WHERE username = ?',
-                [username]
-            );
+            const existingUser = await prisma.organization.findUnique({
+                where: { username }
+            });
 
-            if (Array.isArray(existingUsers) && existingUsers.length > 0) {
+            if (existingUser) {
                 return res.status(409).json({
                     success: false,
                     message: "Username already exists"
@@ -56,9 +57,17 @@ class IdentityController {
 
             const encryptedPassword = encryptPassword(password);
 
-            // Insert the new organization into the database
-            await pool.query('INSERT INTO organization (username, password, wilaya, commune, name) VALUES (?, ?, ?, ?, ?)', 
-                [username, encryptedPassword, wilaya, commune, name]);
+            // Create new organization using Prisma
+            await prisma.organization.create({
+                data: {
+                    username,
+                    password: encryptedPassword,
+                    wilaya,
+                    commune,
+                    name,
+                    
+                }
+            });
 
             return res.status(201).json({
                 success: true,
@@ -67,9 +76,8 @@ class IdentityController {
         } catch (error) {
             console.error('Registration error:', error);
             
-            // Handle specific database errors
             if (error instanceof Error) {
-                if (error.message.includes('Duplicate entry')) {
+                if (error.message.includes('Unique constraint')) {
                     return res.status(409).json({
                         success: false,
                         message: "Username already exists"
@@ -86,7 +94,7 @@ class IdentityController {
 
     async login(req: Request, res: Response) {
         try {
-            const body = req.body as Login; // Removed unnecessary unknown assertion
+            const body = req.body as Login;
             const { username, password } = body;
 
             if (!username || !password) {
@@ -96,22 +104,19 @@ class IdentityController {
                 });
             }
 
-            const [rows] = await pool.query<any[]>(
-                'SELECT id, username, wilaya, commune, name, password FROM organization WHERE username = ?',
-                [username]
-            );
+            const user = await prisma.organization.findUnique({
+                where: { username }
+            });
 
-            if (!Array.isArray(rows) || rows.length === 0) {
+            if (!user) {
                 return res.status(401).json({
                     success: false,
                     message: "Invalid credentials"
                 });
             }
 
-            const user = rows[0];
-
             // Verify the password
-            if (decryptPassword(user.password) !== password) {
+            if (encryptPassword(password) !== user.password) {
                 return res.status(401).json({
                     success: false,
                     message: "Invalid credentials"
@@ -126,8 +131,8 @@ class IdentityController {
                 commune: user.commune,
                 name: user.name,
                 password: user.password,
-                created_at: new Date(),
-                updated_at: new Date()
+                created_at: user.created_at,
+                updated_at: user.updated_at
             });
             const refreshToken = generateRefreshToken({
                 id: user.id,
@@ -136,8 +141,8 @@ class IdentityController {
                 commune: user.commune,
                 name: user.name,
                 password: user.password,
-                created_at: new Date(),
-                updated_at: new Date()
+                created_at: user.created_at,
+                updated_at: user.updated_at
             });
 
             return res.status(200).json({
@@ -174,20 +179,17 @@ class IdentityController {
                 });
             }
 
-            // Get user data from database to ensure token has all required Organization fields
-            const [rows] = await pool.query<any[]>(
-                'SELECT id, username, wilaya, commune, name, password FROM organization WHERE id = ?',
-                [decoded.id]
-            );
+            const user = await prisma.organization.findUnique({
+                where: { id: decoded.id }
+            });
 
-            if (!Array.isArray(rows) || rows.length === 0) {
+            if (!user) {
                 return res.status(401).json({
                     success: false,
                     message: "User not found"
                 });
             }
 
-            const user = rows[0];
             const token = generateToken({
                 id: user.id,
                 username: user.username,
@@ -195,8 +197,8 @@ class IdentityController {
                 commune: user.commune,
                 name: user.name,
                 password: user.password,
-                created_at: new Date(),
-                updated_at: new Date()
+                created_at: user.created_at,
+                updated_at: user.updated_at
             });
 
             return res.status(200).json({ token });
@@ -221,7 +223,7 @@ class IdentityController {
         try {
             const body = req.body as Organization;
             const { username, password, wilaya, commune, name } = body;
-            const userId = req.body.id; // Get user ID from request
+            const userId = req.body.id;
 
             if (!userId) {
                 return res.status(400).json({
@@ -230,42 +232,26 @@ class IdentityController {
                 });
             }
 
-            // Build update query dynamically based on provided fields
-            const updates: string[] = [];
-            const values: any[] = [];
+            // Build update data object
+            const updateData: any = {};
 
-            if (username) {
-                updates.push('username = ?');
-                values.push(username);
-            }
-            if (password) {
-                updates.push('password = ?');
-                values.push(encryptPassword(password));
-            }
-            if (wilaya) {
-                updates.push('wilaya = ?');
-                values.push(wilaya);
-            }
-            if (commune) {
-                updates.push('commune = ?');
-                values.push(commune);
-            }
-            if (name) {
-                updates.push('name = ?');
-                values.push(name);
-            }
+            if (username) updateData.username = username;
+            if (password) updateData.password = encryptPassword(password);
+            if (wilaya) updateData.wilaya = wilaya;
+            if (commune) updateData.commune = commune;
+            if (name) updateData.name = name;
 
-            if (updates.length === 0) {
+            if (Object.keys(updateData).length === 0) {
                 return res.status(400).json({
                     success: false,
                     message: "No fields to update"
                 });
             }
 
-            values.push(userId);
-            const updateQuery = `UPDATE organization SET ${updates.join(', ')} WHERE id = ?`;
-
-            await pool.query(updateQuery, values);
+            await prisma.organization.update({
+                where: { id: userId },
+                data: updateData
+            });
 
             return res.status(200).json({
                 success: true,

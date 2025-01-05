@@ -1,0 +1,53 @@
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "mysql"
+    url      = env("DATABASE_URL")
+}
+
+model like_history {
+    id                                     Int       @id @default(autoincrement())
+    worker_id                              Int
+    is_liked                               Boolean
+    comment                                String?   @db.Text
+    created_by                             Int?
+    created_at                             DateTime? @default(now()) @db.DateTime(0)
+    worker_like_history_worker_idToworker  worker    @relation("like_history_worker_idToworker", fields: [worker_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "like_history_ibfk_1")
+    worker_like_history_created_byToworker worker?   @relation("like_history_created_byToworker", fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "like_history_ibfk_2")
+
+    @@index([created_by], map: "created_by")
+    @@index([worker_id], map: "idx_like_worker")
+}
+
+model organization {
+    id         Int       @id @default(autoincrement())
+    username   String    @unique(map: "username") @db.VarChar(50)
+    password   String    @db.VarChar(100)
+    wilaya     String    @db.VarChar(50)
+    commune    String    @db.VarChar(50)
+    name       String    @db.VarChar(50)
+    created_at DateTime? @default(now()) @db.DateTime(0)
+    updated_at DateTime? @default(now()) @db.DateTime(0)
+    worker     worker[]
+
+    @@index([wilaya, commune], map: "idx_org_location")
+}
+
+model worker {
+    id                                           Int            @id @default(autoincrement())
+    fullname                                     String         @db.VarChar(50)
+    organization_id                              Int
+    department                                   String        
+    total_likes                                  Int?           @default(0)
+    total_dislikes                               Int?           @default(0)
+    active                                       Boolean?       @default(false)
+    created_at                                   DateTime?      @default(now()) @db.DateTime(0)
+    updated_at                                   DateTime?      @default(now()) @db.DateTime(0)
+    like_history_like_history_worker_idToworker  like_history[] @relation("like_history_worker_idToworker")
+    like_history_like_history_created_byToworker like_history[] @relation("like_history_created_byToworker")
+    organization                                 organization   @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "worker_ibfk_1")
+
+    @@index([organization_id], map: "idx_worker_org")
+}

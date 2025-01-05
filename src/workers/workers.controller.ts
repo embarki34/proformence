@@ -1,242 +1,367 @@
-import { Request, Response } from 'express';
-import pool from '../lib/db';
-import { verifyToken } from '../lib/jwt';
-import { ResultSetHeader, RowDataPacket } from 'mysql2';
+import { Request, Response } from "express";
+import { PrismaClient } from "@prisma/client";
+import { verifyToken } from "../lib/jwt";
+
+const prisma = new PrismaClient();
 
 class WorkersController {
-    async create(req: Request, res: Response) {
-        try {
-            const token = req.headers.authorization?.split(' ')[1];
-            if (!token) {
-                return res.status(401).json({
-                    success: false,
-                    message: "No token provided"
-                });
-            }
+  async create(req: Request, res: Response) {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      if (!token) {
+        return res.status(401).json({
+          success: false,
+          message: "No token provided",
+        });
+      }
 
-            const decoded = await verifyToken(token);
-            if (!decoded) {
-                return res.status(401).json({
-                    success: false, 
-                    message: "Invalid token"
-                });
-            }
+      const decoded = await verifyToken(token);
+      if (!decoded) {
+        return res.status(401).json({
+          success: false,
+          message: "Invalid token",
+        });
+      }
 
-            const { fullname, department } = req.body;
-            if (!fullname) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Fullname is required"
-                });
-            }
+      const { fullname, department } = req.body;
+      if (!fullname) {
+        return res.status(400).json({
+          success: false,
+          message: "Fullname is required",
+        });
+      }
 
-            if (!department) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Department is required"
-                });
-            }
+      if (!department) {
+        return res.status(400).json({
+          success: false,
+          message: "Department is required",
+        });
+      }
 
-            // First check if department column exists
-           
+      const workerExist = await prisma.worker.findFirst({
+        where: {
+          AND: [{ fullname: fullname }, { department: department }],
+        },
+      });
 
-            
+      console.log(workerExist);
 
-            const [result] = await pool.query<ResultSetHeader>(
-                'INSERT INTO worker (fullname, department, organization_id) VALUES (?, ?, ?)',
-                [fullname, department, decoded.id]
-            );
+      if (workerExist) {
+        return res.status(409).json({
+          success: false,
+          message: "Username already exists in this department",
+        });
+      }
 
-            return res.status(201).json({
-                success: true,
-                message: "Worker created successfully",
-                workerId: result.insertId
-            });
-        } catch (error) {
-            console.error('Create worker error:', error);
-            return res.status(500).json({
-                success: false,
-                message: "Internal server error"
-            });
-        }
+      const worker = await prisma.worker.create({
+        data: {
+          fullname,
+          department,
+          organization: {
+            connect: {
+              id: decoded.id,
+            },
+          },
+          // Remove the active field since it defaults to true in schema
+        },
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: "Worker created successfully",
+        workerId: worker.id,
+      });
+    } catch (error) {
+      console.error("Create worker error:", error.toString());
+      return res.status(500).json({
+        success: false,
+        message: "Internal server error",
+      });
     }
+  }
 
-    async getAll(req: Request, res: Response) {
-        try {
-            const token = req.headers.authorization?.split(' ')[1];
-            if (!token) {
-                return res.status(401).json({
-                    success: false,
-                    message: "No token provided"
-                });
-            }
+  async getAll(req: Request, res: Response) {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      if (!token) {
+        return res.status(401).json({
+          success: false,
+          message: "No token provided",
+        });
+      }
 
-            const decoded = await verifyToken(token);
-            if (!decoded) {
-                return res.status(401).json({
-                    success: false,
-                    message: "Invalid token"
-                });
-            }
+      const decoded = await verifyToken(token);
+      if (!decoded) {
+        return res.status(401).json({
+          success: false,
+          message: "Invalid token",
+        });
+      }
 
-            const [workers] = await pool.query<RowDataPacket[]>(
-                'SELECT id, fullname, total_likes, total_dislikes, created_at, updated_at FROM worker WHERE organization_id = ? AND active = TRUE',
-                [decoded.id]
-            );
+      // Get pagination parameters from query string
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const skip = (page - 1) * limit;
 
-            return res.status(200).json({
-                success: true,
-                workers
-            });
-        } catch (error) {
-            console.error('Get workers error:', error);
-            return res.status(500).json({
-                success: false,
-                message: "Internal server error"
-            });
-        }
+      // Get total count of workers
+      const totalWorkers = await prisma.worker.count({
+        where: {
+          organization_id: decoded.id,
+          // active: true, // Assuming you want to count only active workers
+        },
+      });
+
+      // Get paginated workers
+      const workers = await prisma.worker.findMany({
+        where: {
+          organization_id: decoded.id,
+          // active: true,
+        },
+        skip,
+        take: limit,
+        orderBy: {
+          created_at: "desc", // Optional: sort by creation date
+        },
+      });
+
+      return res.status(200).json({
+        success: true,
+        workers,
+        pagination: {
+          total: totalWorkers,
+          page,
+          limit,
+          totalPages: Math.ceil(totalWorkers / limit),
+        },
+      });
+    } catch (error) {
+      console.error("Get workers error:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Internal server error",
+      });
     }
+  }
 
-    async getById(req: Request, res: Response) {
-        try {
-            const token = req.headers.authorization?.split(' ')[1];
-            if (!token) {
-                return res.status(401).json({
-                    success: false,
-                    message: "No token provided"
-                });
+  async getById(req: Request, res: Response) {
+    try {
+      // Validate token
+      const token = req.headers.authorization?.split(" ")[1];
+      if (!token) {
+        return res.status(401).json({
+          success: false,
+          message: "No token provided",
+        });
+      }
+
+      const decoded = await verifyToken(token);
+      if (!decoded) {
+        return res.status(401).json({
+          success: false,
+          message: "Invalid token", 
+        });
+      }
+
+      // Validate and parse ID parameter
+      const { id } = req.params;
+      const workerId = parseInt(id);
+      if (isNaN(workerId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid worker ID format",
+        });
+      }
+
+      // Get worker details
+      const worker = await prisma.worker.findFirst({
+        where: {
+          id: workerId,
+          organization_id: decoded.id, // Fixed field name
+          // active: true,
+        },
+        select: {
+          id: true,
+          fullname: true,
+          department: true, // Added department
+          total_likes: true,
+          total_dislikes: true,
+          created_at: true,
+          updated_at: true,
+          organization: {
+            select: {
+              name: true,
+              wilaya: true,
+              commune: true
             }
+          }
+        },
+      });
 
-            const decoded = await verifyToken(token);
-            if (!decoded) {
-                return res.status(401).json({
-                    success: false,
-                    message: "Invalid token"
-                });
-            }
+      if (!worker) {
+        return res.status(404).json({
+          success: false,
+          message: "Worker not found or inactive",
+        });
+      }
 
-            const { id } = req.params;
-            const [workers] = await pool.query<RowDataPacket[]>(
-                'SELECT id, fullname, total_likes, total_dislikes, created_at, updated_at FROM worker WHERE id = ? AND organization_id = ? AND active = TRUE',
-                [id, decoded.id]
-            );
+      // Check if worker exists in other organizations
+      const existForDifferentOrganization = await prisma.worker.findFirst({
+        where: {
+          fullname: worker.fullname,
+          organization_id: {
+            not: decoded.id,
+          },
+          active: true,
+        },
+      });
 
-            if (!Array.isArray(workers) || workers.length === 0) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Worker not found"
-                });
-            }
+      if (existForDifferentOrganization) {
+        return res.status(409).json({
+          success: false,
+          message: "Worker already exists in another organization",
+          details: {
+            worker_id: worker.id,
+            organization_id: decoded.id
+          }
+        });
+      }
 
-            return res.status(200).json({
-                success: true,
-                worker: workers[0]
-            });
-        } catch (error) {
-            console.error('Get worker error:', error);
-            return res.status(500).json({
-                success: false,
-                message: "Internal server error"
-            });
+      // Get like history
+      const likeHistory = await prisma.like_history.findMany({
+        where: {
+          worker_id: workerId
+        },
+        orderBy: {
+          created_at: 'desc'
+        },
+
+      });
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          worker,
+          recent_likes: likeHistory
         }
+      });
+
+    } catch (error) {
+      console.error("Get worker error:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Internal server error",
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
+  }
 
-    async update(req: Request, res: Response) {
-        try {
-            const token = req.headers.authorization?.split(' ')[1];
-            if (!token) {
-                return res.status(401).json({
-                    success: false,
-                    message: "No token provided"
-                });
-            }
+  async update(req: Request, res: Response) {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      if (!token) {
+        return res.status(401).json({
+          success: false,
+          message: "No token provided",
+        });
+      }
 
-            const decoded = await verifyToken(token);
-            if (!decoded) {
-                return res.status(401).json({
-                    success: false,
-                    message: "Invalid token"
-                });
-            }
+      const decoded = await verifyToken(token);
+      if (!decoded) {
+        return res.status(401).json({
+          success: false,
+          message: "Invalid token",
+        });
+      }
 
-            const { id } = req.params;
-            const { fullname } = req.body;
+      const { id } = req.params;
+      const { fullname } = req.body;
 
-            if (!fullname) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Fullname is required"
-                });
-            }
+      if (!fullname) {
+        return res.status(400).json({
+          success: false,
+          message: "Fullname is required",
+        });
+      }
 
-            const [result] = await pool.query<ResultSetHeader>(
-                'UPDATE worker SET fullname = ? WHERE id = ? AND organization_id = ? AND active = TRUE',
-                [fullname, id, decoded.id]
-            );
+      const worker = await prisma.worker.updateMany({
+        where: {
+          id: parseInt(id),
+          organizationId: decoded.id,
+          active: true,
+        },
+        data: {
+          fullname,
+        },
+      });
 
-            if (result.affectedRows === 0) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Worker not found"
-                });
-            }
+      if (worker.count === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Worker not found",
+        });
+      }
 
-            return res.status(200).json({
-                success: true,
-                message: "Worker updated successfully"
-            });
-        } catch (error) {
-            console.error('Update worker error:', error);
-            return res.status(500).json({
-                success: false,
-                message: "Internal server error"
-            });
-        }
+      return res.status(200).json({
+        success: true,
+        message: "Worker updated successfully",
+      });
+    } catch (error) {
+      console.error("Update worker error:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Internal server error",
+      });
     }
+  }
 
-    async delete(req: Request, res: Response) {
-        try {
-            const token = req.headers.authorization?.split(' ')[1];
-            if (!token) {
-                return res.status(401).json({
-                    success: false,
-                    message: "No token provided"
-                });
-            }
+  async delete(req: Request, res: Response) {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      if (!token) {
+        return res.status(401).json({
+          success: false,
+          message: "No token provided",
+        });
+      }
 
-            const decoded = await verifyToken(token);
-            if (!decoded) {
-                return res.status(401).json({
-                    success: false,
-                    message: "Invalid token"
-                });
-            }
+      const decoded = await verifyToken(token);
+      if (!decoded) {
+        return res.status(401).json({
+          success: false,
+          message: "Invalid token",
+        });
+      }
 
-            const { id } = req.params;
-            const [result] = await pool.query<ResultSetHeader>(
-                'UPDATE worker SET active = FALSE WHERE id = ? AND organization_id = ?',
-                [id, decoded.id]
-            );
+      const { id } = req.params;
+      const worker = await prisma.worker.updateMany({
+        where: {
+          id: parseInt(id),
+          organizationId: decoded.id,
+        },
+        data: {
+          active: false,
+        },
+      });
 
-            if (result.affectedRows === 0) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Worker not found"
-                });
-            }
+      if (worker.count === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Worker not found",
+        });
+      }
 
-            return res.status(200).json({
-                success: true,
-                message: "Worker deleted successfully"
-            });
-        } catch (error) {
-            console.error('Delete worker error:', error);
-            return res.status(500).json({
-                success: false,
-                message: "Internal server error"
-            });
-        }
+      return res.status(200).json({
+        success: true,
+        message: "Worker deleted successfully",
+      });
+    } catch (error) {
+      console.error("Delete worker error:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Internal server error",
+      });
     }
+  }
 }
 
 export default new WorkersController();
