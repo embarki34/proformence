@@ -5,12 +5,18 @@ import workersRouter from './workers/router';
 import { authenticateToken } from './middleware/auth';
 import likesRouter from './likes/router';
 import statesRouter from './states/router';
+import cors from 'cors';
 dotenv.config();
 
 const app: Express = express();
 const port = process.env.PORT || 3000;
 
+const corsOptions = {
+  origin: '*',
+};
+
 // Middleware
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Public routes

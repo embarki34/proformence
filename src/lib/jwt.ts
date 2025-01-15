@@ -18,7 +18,7 @@ export const generateToken = (user: Organization): string => {
         commune: user.commune,
         name: user.name
     };
-    const options = { expiresIn: '1h' };
+    const options = { expiresIn: '24h' };
     return jwt.sign(payload, secretKey, options);
 };
 

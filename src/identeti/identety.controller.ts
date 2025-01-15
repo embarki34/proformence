@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { Login, Organization } from "../lib/types";
-import {  encryptPassword } from "../lib/incrypt";
+import { encryptPassword } from "../lib/incrypt";
 import { generateRefreshToken, generateToken, verifyRefreshToken } from "../lib/jwt";
 
 const prisma = new PrismaClient();
@@ -65,7 +65,6 @@ class IdentityController {
                     wilaya,
                     commune,
                     name,
-                    
                 }
             });
 
@@ -75,7 +74,8 @@ class IdentityController {
             });
         } catch (error) {
             console.error('Registration error:', error);
-            
+            console.log('Error details:', error); // Log the error details
+
             if (error instanceof Error) {
                 if (error.message.includes('Unique constraint')) {
                     return res.status(409).json({
@@ -108,10 +108,18 @@ class IdentityController {
                 where: { username }
             });
 
+
+
             if (!user) {
                 return res.status(401).json({
                     success: false,
                     message: "Invalid credentials"
+                });
+            }
+            if (!user.isactive) {
+                return res.status(401).json({
+                    success: false,
+                    message: "User is not active"
                 });
             }
 
@@ -144,7 +152,7 @@ class IdentityController {
                 created_at: user.created_at,
                 updated_at: user.updated_at
             });
-
+            console.log(user);
             return res.status(200).json({
                 success: true,
                 user: { id: user.id, username: user.username, wilaya: user.wilaya, commune: user.commune, name: user.name },
@@ -213,9 +221,9 @@ class IdentityController {
 
     async logout(_req: Request, res: Response) {
         // For now just return success since we don't maintain token blacklist
-        return res.status(200).json({ 
+        return res.status(200).json({
             success: true,
-            message: "Logout successful" 
+            message: "Logout successful"
         });
     }
 
@@ -261,7 +269,7 @@ class IdentityController {
         } catch (error) {
             console.error('Update error:', error);
             return res.status(500).json({
-                success: false, 
+                success: false,
                 message: "Internal server error"
             });
         }

@@ -8,7 +8,8 @@
     "build": "tsc",
     "watch": "tsc -w",
     "gen": "npx prisma generate",
-    "meg": "npx prisma migrate dev"
+    "meg": "npx prisma migrate dev",
+    "std": "npx prisma studio"
   },
   "keywords": [],
   "author": "",
@@ -23,9 +24,11 @@
   },
   "devDependencies": {
     "@prisma/client": "^6.1.0",
+    "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^20.11.19",
+    "i": "^0.3.7",
     "nodemon": "^3.0.3",
     "prisma": "^6.1.0",
     "ts-node": "^10.9.2",
