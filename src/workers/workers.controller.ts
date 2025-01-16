@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import {  Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import { verifyToken } from "../lib/jwt";
 
@@ -362,6 +362,65 @@ class WorkersController {
       });
     }
   }
+
+  async changeStatus(req: Request, res: Response) {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      if (!token) {
+        return res.status(401).json({
+          success: false,
+          message: "No token provided",
+        });
+      }
+  
+      const decoded = await verifyToken(token);
+      if (!decoded) {
+        return res.status(401).json({
+          success: false,
+          message: "Invalid token",
+        });
+      }
+  
+      // Retrieve the worker's current status
+      const worker = await prisma.worker.findFirst({
+        where: {
+          id: parseInt(req.params.id),
+          organization_id: decoded.id,
+        },
+      });
+  
+      if (!worker) {
+        return res.status(404).json({
+          success: false,
+          message: "Worker not found",
+        });
+      }
+  
+      // Toggle the active status
+      const updatedWorker = await prisma.worker.update({
+        where: {
+          id: worker.id,
+        },
+        data: {
+          active: !worker.active, // Toggle the active status
+        },
+      });
+  
+      return res.status(200).json({
+        success: true,
+        message: updatedWorker.active
+          ? "Worker activated successfully"
+          : "Worker deactivated successfully",
+      });
+    } catch (error) {
+      console.error("Change worker status error:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Internal server error",
+      });
+    }
+  }
+  
 }
 
 export default new WorkersController();

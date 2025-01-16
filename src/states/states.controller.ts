@@ -58,6 +58,10 @@ class StatesController {
         by: ['active'],
         _count: true,
       });
+      const engagementHistory = await prisma.like_history.groupBy({
+        by: ['created_at', 'is_liked'],
+        _count: true,
+      });
 
       const response = {
         workerDistributionByDepartment,
@@ -71,6 +75,7 @@ class StatesController {
         mostDislikedWorker,
         feedbackThisMonth,
         newWorkersThisMonth,
+        engagementHistory,
       };
 
       return res.status(200).json({ success: true, data: response });

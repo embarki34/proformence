@@ -10,6 +10,7 @@ router.get('/', workersController.getAll);
 router.get('/:id', workersController.getById);
 router.patch('/:id', workersController.update);
 router.delete('/:id', workersController.delete);
+router.post('/:id/changeStatus', workersController.changeStatus);
 
 
 
